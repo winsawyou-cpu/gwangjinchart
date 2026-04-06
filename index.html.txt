@@ -1,0 +1,304 @@
+import React, { useState, useRef } from 'react';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, 
+  ResponsiveContainer, Cell, LabelList
+} from 'recharts';
+import { Download, RotateCcw, LayoutDashboard, FileText, CheckCircle2, Info, Loader2 } from 'lucide-react';
+
+// 광진구 15개 행정동 리스트
+const GWANGJIN_DONGS = [
+  '중곡1동', '중곡2동', '중곡3동', '중곡4동', '능동', 
+  '구의1동', '구의2동', '구의3동', '광장동', '자양1동', 
+  '자양2동', '자양3동', '자양4동', '화양동', '군자동'
+];
+
+/**
+ * 차트 상단에 표시될 수치 라벨 컴포넌트
+ */
+const CustomLabel = (props) => {
+  const { x, y, width, value, payload, highlight } = props;
+  const isHigh = payload?.name === highlight;
+  if (value === 0 || value === undefined) return null;
+
+  return (
+    <text
+      x={x + width / 2}
+      y={y - 12}
+      textAnchor="middle"
+      fill={isHigh ? '#3730a3' : '#6366f1'}
+      style={{ 
+        fontSize: isHigh ? '14px' : '11px', 
+        fontWeight: isHigh ? '800' : '600',
+        opacity: isHigh ? 1 : 0.8
+      }}
+    >
+      {value.toLocaleString()}
+    </text>
+  );
+};
+
+export default function App() {
+  const exportRef = useRef(null);
+  
+  // 상태 관리
+  const [reportTitle, setReportTitle] = useState('2026 광진구 주요 행정 지표 분석');
+  const [unit, setUnit] = useState('명');
+  const [source, setSource] = useState('광진구청 공공데이터 포털');
+  const [highlightedDong, setHighlightedDong] = useState('광장동');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [data, setData] = useState(
+    GWANGJIN_DONGS.map(dong => ({ name: dong, value: Math.floor(Math.random() * 800) + 200 }))
+  );
+
+  const handleDataUpdate = (index, rawValue) => {
+    const numericValue = parseInt(rawValue.replace(/[^0-9]/g, '')) || 0;
+    const newData = [...data];
+    newData[index].value = Math.max(0, numericValue);
+    setData(newData);
+  };
+
+  const randomizeData = () => {
+    setData(GWANGJIN_DONGS.map(dong => ({ name: dong, value: Math.floor(Math.random() * 900) + 100 })));
+  };
+
+  /**
+   * 모바일 대응 개선된 이미지 내보내기 로직
+   */
+  const exportImage = async (format) => {
+    if (!exportRef.current || isGenerating) return;
+    const svgElement = exportRef.current.querySelector('svg');
+    if (!svgElement) return;
+
+    setIsGenerating(true);
+
+    try {
+      const width = svgElement.clientWidth || 1000;
+      const height = svgElement.clientHeight || 700;
+
+      const serializer = new XMLSerializer();
+      let sourceXml = serializer.serializeToString(svgElement);
+      
+      if (!sourceXml.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) {
+        sourceXml = sourceXml.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+      }
+
+      if (format === 'svg') {
+        const blob = new Blob(['<?xml version="1.0" standalone="no"?>\r\n' + sourceXml], { type: 'image/svg+xml;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        triggerDownload(url, `${reportTitle}.svg`);
+      } else {
+        const scale = 3; // 3배 고해상도
+        const canvas = document.createElement('canvas');
+        canvas.width = width * scale;
+        canvas.height = height * scale;
+        const ctx = canvas.getContext('2d');
+        
+        const img = new Image();
+        const svgBlob = new Blob([sourceXml], { type: 'image/svg+xml;charset=utf-8' });
+        const url = URL.createObjectURL(svgBlob);
+
+        img.onload = () => {
+          ctx.scale(scale, scale);
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, width, height);
+          ctx.drawImage(img, 0, 0);
+          
+          canvas.toBlob((blob) => {
+            if (blob) {
+              const jpgUrl = URL.createObjectURL(blob);
+              triggerDownload(jpgUrl, `${reportTitle}.jpg`);
+            }
+            URL.revokeObjectURL(url);
+            setIsGenerating(false);
+          }, 'image/jpeg', 0.95);
+        };
+        img.src = url;
+      }
+    } catch (error) {
+      console.error("Export failed:", error);
+      setIsGenerating(false);
+    }
+  };
+
+  const triggerDownload = (url, fileName) => {
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    // 모바일에서는 바로 revoke하면 다운로드가 안될 수 있으므로 지연
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setIsGenerating(false);
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-900 pb-20">
+      {/* 내비게이션 바 */}
+      <nav className="bg-slate-900 text-white px-4 py-4 sm:px-6 flex items-center justify-between shadow-lg mb-6 sm:mb-8 sticky top-0 z-50">
+        <div className="flex items-center gap-2">
+          <LayoutDashboard className="w-5 h-5 sm:w-6 sm:h-6 text-indigo-400" />
+          <h1 className="text-lg sm:text-xl font-bold tracking-tight">Gwangjin <span className="text-indigo-400">Dash</span></h1>
+        </div>
+        <div className="hidden sm:flex items-center gap-4 text-sm font-medium text-slate-300">
+          <span className="flex items-center gap-1"><CheckCircle2 className="w-4 h-4 text-green-400" /> Report Optimized</span>
+          <span className="bg-slate-800 px-3 py-1 rounded-full text-xs font-bold">v2.9 Mobile-Ready</span>
+        </div>
+      </nav>
+
+      <div className="max-w-6xl mx-auto px-4 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
+        {/* 왼쪽 설정 패널 */}
+        <div className="lg:col-span-4 space-y-6 order-2 lg:order-1">
+          <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-6">
+            <div className="flex items-center gap-2 mb-6 pb-2 border-b border-slate-100">
+              <FileText className="w-5 h-5 text-indigo-600" />
+              <h2 className="font-bold text-slate-800 tracking-tight">보고서 기본 설정</h2>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 mb-1 uppercase tracking-wider">메인 제목</label>
+                <input 
+                  type="text" 
+                  value={reportTitle}
+                  onChange={(e) => setReportTitle(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 mb-1 uppercase tracking-wider">단위</label>
+                  <input type="text" value={unit} onChange={(e) => setUnit(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-indigo-500" />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-indigo-600 mb-1 uppercase tracking-wider">강조 지역</label>
+                  <select value={highlightedDong} onChange={(e) => setHighlightedDong(e.target.value)} className="w-full bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold rounded-xl px-4 py-2.5 text-sm outline-none cursor-pointer">
+                    {GWANGJIN_DONGS.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-bold text-slate-800 flex items-center gap-2">
+                <LayoutDashboard className="w-5 h-5 text-indigo-600" /> 데이터 실시간 편집
+              </h2>
+              <button onClick={randomizeData} className="text-slate-400 hover:text-indigo-600 p-2 rounded-lg hover:bg-slate-100 transition-all"><RotateCcw className="w-4 h-4" /></button>
+            </div>
+            <div className="grid grid-cols-2 gap-3 max-h-[350px] overflow-y-auto pr-1 custom-scrollbar">
+              {data.map((item, idx) => (
+                <div key={item.name} className={`p-3 rounded-xl border transition-all ${item.name === highlightedDong ? 'bg-indigo-50 border-indigo-200 shadow-sm ring-1 ring-indigo-200' : 'bg-white border-slate-100'}`}>
+                  <label className="block text-[10px] font-bold text-slate-400 mb-1">{item.name}</label>
+                  <input 
+                    type="text" 
+                    value={item.value} 
+                    onChange={(e) => handleDataUpdate(idx, e.target.value)} 
+                    className="w-full bg-transparent border-none p-0 text-sm font-bold outline-none text-slate-700 focus:ring-0" 
+                  />
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+
+        {/* 오른쪽 결과 패널 */}
+        <div className="lg:col-span-8 space-y-4 order-1 lg:order-2">
+          <div className="flex flex-col sm:flex-row gap-3">
+            <button 
+              onClick={() => exportImage('jpg')} 
+              disabled={isGenerating}
+              className="flex-1 flex items-center justify-center gap-2 bg-indigo-600 text-white px-6 py-4 rounded-2xl text-sm font-bold shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed"
+            >
+              {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              보고서 이미지 저장 (JPG)
+            </button>
+            <button 
+              onClick={() => exportImage('svg')} 
+              disabled={isGenerating}
+              className="flex items-center justify-center gap-2 bg-slate-200 text-slate-700 px-6 py-4 rounded-2xl text-sm font-bold hover:bg-slate-300 transition-all active:scale-95"
+            >
+              SVG(벡터) 저장
+            </button>
+          </div>
+
+          {/* 프리뷰 캔버스 */}
+          <div className="relative group">
+            <div ref={exportRef} className="bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden aspect-[4/3] min-h-[500px] sm:min-h-[600px] transition-all">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart 
+                  data={data} 
+                  margin={{ top: 130, right: 40, left: 10, bottom: 60 }}
+                  barSize={window.innerWidth < 640 ? 18 : 32}
+                >
+                  <text x="50%" y="50" textAnchor="middle" fill="#1e293b" style={{ fontSize: window.innerWidth < 640 ? '20px' : '28px', fontWeight: '900', letterSpacing: '-0.02em' }}>{reportTitle}</text>
+                  <text x="50%" y="85" textAnchor="middle" fill="#64748b" style={{ fontSize: window.innerWidth < 640 ? '12px' : '14px', fontWeight: '500' }}>단위: {unit} | 데이터 기준일: {new Date().toLocaleDateString('ko-KR')}</text>
+                  
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis 
+                    dataKey="name" 
+                    axisLine={{ stroke: '#e2e8f0' }}
+                    tickLine={false}
+                    tick={{ fill: '#64748b', fontSize: window.innerWidth < 640 ? 10 : 12, fontWeight: 500 }}
+                    interval={0}
+                    angle={-45}
+                    textAnchor="end"
+                    height={80}
+                  />
+                  <YAxis 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fill: '#94a3b8', fontSize: 10 }}
+                    tickFormatter={(v) => v.toLocaleString()}
+                  />
+                  <Tooltip 
+                    cursor={{ fill: 'rgba(79, 70, 229, 0.05)' }}
+                    contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', padding: '12px' }}
+                  />
+                  <Bar dataKey="value" radius={[6, 6, 0, 0]} animationDuration={1000}>
+                    {data.map((entry, index) => (
+                      <Cell 
+                        key={index} 
+                        fill={entry.name === highlightedDong ? '#4f46e5' : '#a5b4fc'} 
+                        style={{ transition: 'fill 0.3s ease' }}
+                      />
+                    ))}
+                    <LabelList dataKey="value" content={<CustomLabel highlight={highlightedDong} />} />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            {isGenerating && (
+              <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px] flex flex-col items-center justify-center rounded-3xl z-10">
+                <Loader2 className="w-10 h-10 text-indigo-600 animate-spin mb-3" />
+                <p className="font-bold text-slate-800">고해상도 리포트 생성 중...</p>
+              </div>
+            )}
+          </div>
+
+          <div className="bg-indigo-50 border border-indigo-100 p-5 rounded-2xl flex items-start gap-3">
+            <Info className="w-5 h-5 text-indigo-500 mt-0.5 shrink-0" />
+            <div className="text-xs text-indigo-800 leading-relaxed">
+              <p className="font-bold mb-1">모바일 저장 팁:</p>
+              <ul className="list-disc ml-4 space-y-1">
+                <li>버튼을 누르면 3배 해상도의 고품질 이미지가 생성됩니다.</li>
+                <li>일부 모바일 브라우저에서는 다운로드가 자동으로 시작되지 않을 수 있습니다. 이 경우 이미지가 새 탭에 뜨면 <strong>길게 눌러 이미지 저장</strong>을 선택하세요.</li>
+                <li>저장된 파일은 갤러리 또는 다운로드 폴더에서 확인할 수 있습니다.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <style>{`
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css');
+        body { font-family: 'Pretendard', sans-serif; -webkit-tap-highlight-color: transparent; }
+        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+        input[type="text"] { font-size: 16px !important; } /* 모바일 사파리 줌 방지 */
+      `}</style>
+    </div>
+  );
+}
